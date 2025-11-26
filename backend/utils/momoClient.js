@@ -46,6 +46,7 @@ const createMoMoPayment = async (orderId, amount, orderInfo) => {
         const response = await axios.post(endpoint, requestBody, {
             headers: { 'Content-Type': 'application/json' }
         });
+        console.log("MoMo API Response (SUCCESS):", response.data);
 
         return response.data;
     } catch (error) {

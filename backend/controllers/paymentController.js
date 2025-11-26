@@ -34,62 +34,96 @@ exports.processPayment = asyncErrorHandler(async (req, res, next) => {
 });
 
 // API 2: Frontend gọi liên tục để kiểm tra trạng thái (Polling)
-exports.getPaymentStatus = asyncErrorHandler(async (req, res, next) => {
-    const { id } = req.params; // id ở đây là orderId của MoMo
+// backend/controllers/paymentController.js
 
+exports.getPaymentStatus = asyncErrorHandler(async (req, res, next) => {
+    const { id } = req.params; // id là orderId
+
+    // BƯỚC 1: Kiểm tra trong Database nội bộ TRƯỚC
+    // (Vì script giả lập của bạn đã lưu vào đây qua hàm paytmResponse ở trên)
+    const localPayment = await Payment.findOne({ orderId: id });
+
+    if (localPayment && localPayment.status === "succeeded") {
+        return res.status(200).json({
+            success: true,
+            status: "succeeded",
+            paymentInfo: {
+                id: localPayment.txnId,
+                status: localPayment.status
+            }
+        });
+    }
+
+    // BƯỚC 2: Nếu Database chưa có (hoặc chưa thành công), mới gọi sang MoMo thật
+    // (Logic cũ giữ nguyên để dự phòng cho trường hợp production)
     try {
         const statusResponse = await checkTransactionStatus(id);
 
-        // resultCode = 0 nghĩa là giao dịch thành công
         if (statusResponse.resultCode === 0) {
+            // Nếu MoMo thật báo thành công, lưu vào DB và trả về
+            await Payment.create({
+                orderId: statusResponse.orderId,
+                txnId: statusResponse.transId,
+                amount: statusResponse.amount,
+                resultCode: statusResponse.resultCode,
+                message: statusResponse.message,
+                status: "succeeded"
+            });
 
-            // Kiểm tra xem đã lưu vào DB chưa để tránh trùng lặp
-            let payment = await Payment.findOne({ orderId: statusResponse.orderId });
-
-            if (!payment) {
-                // Nếu chưa có thì lưu vào DB
-                payment = await Payment.create({
-                    orderId: statusResponse.orderId,
-                    txnId: statusResponse.transId,
-                    amount: statusResponse.amount,
-                    resultCode: statusResponse.resultCode,
-                    message: statusResponse.message,
-                    status: "succeeded"
-                });
-            }
-
-            res.status(200).json({
+            return res.status(200).json({
                 success: true,
                 status: "succeeded",
                 paymentInfo: {
-                    id: payment.txnId,
-                    status: payment.status
+                    id: statusResponse.transId,
+                    status: "succeeded"
                 }
             });
-        } else {
-            // Giao dịch chưa hoàn tất hoặc thất bại
-            // resultCode = 1000 (Initiated), 9000 (Processing)...
-            res.status(200).json({
-                success: true,
-                status: "pending",
-                message: statusResponse.message
-            });
         }
-
     } catch (error) {
-    // Không return error 500 để frontend tiếp tục polling nếu lỗi mạng thoáng qua
-        res.status(200).json({
-            success: false,
-            status: "error",
-            message: "Waiting..."
-        });
+        // Lỗi kết nối MoMo thì bỏ qua, chỉ trả về pending
     }
+
+    // BƯỚC 3: Nếu cả 2 đều chưa thấy thành công
+    res.status(200).json({
+        success: true,
+        status: "pending",
+        message: "Waiting for payment..."
+    });
 });
 
 // API 3: Callback (Webhook) - MoMo gọi vào đây (Backup cho Polling)
+// backend/controllers/paymentController.js
+
 exports.paytmResponse = asyncErrorHandler(async (req, res, next) => {
-    // Chỉ cần trả về status 204 để MoMo biết đã nhận tin
-    // Logic chính đã xử lý ở API getPaymentStatus (Polling)
+    // 1. Nhận dữ liệu từ IPN (Script giả lập hoặc MoMo thật gửi về)
+    const { orderId, transId, resultCode, message, amount } = req.body;
+
+    console.log(`🔔 IPN Received for Order: ${orderId}, ResultCode: ${resultCode}`);
+
+    // 2. Tìm xem đã có bản ghi thanh toán này trong DB chưa
+    let payment = await Payment.findOne({ orderId: orderId });
+
+    // 3. Nếu resultCode = 0 (Thành công), Lưu/Cập nhật vào DB
+    if (Number(resultCode) === 0) {
+        if (!payment) {
+            await Payment.create({
+                orderId,
+                txnId: transId,
+                amount,
+                resultCode,
+                message,
+                status: "succeeded" // Quan trọng: Đánh dấu là thành công
+            });
+        } else {
+            // Nếu đã có thì cập nhật trạng thái
+            payment.status = "succeeded";
+            payment.resultCode = resultCode;
+            payment.txnId = transId;
+            await payment.save();
+        }
+    }
+
+    // 4. Trả về 204 cho MoMo (hoặc script) biết đã nhận tin
     res.status(204).send();
 });
 
