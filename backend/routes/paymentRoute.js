@@ -5,7 +5,7 @@ const { isAuthenticatedUser } = require('../middlewares/auth');
 const router = express.Router();
 
 // Tạo yêu cầu thanh toán (lấy QR)
-router.route('/payment/process').post(isAuthenticatedUser, processPayment);
+router.route('/payment/process').post(isAuthenticatedUser, paymentLimiter, processPayment);
 
 // Kiểm tra trạng thái thanh toán (Polling)
 router.route('/payment/status/:id').get(isAuthenticatedUser, getPaymentStatus);
