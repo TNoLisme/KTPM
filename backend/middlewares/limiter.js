@@ -4,7 +4,7 @@ const slowDown = require("express-slow-down");
 
 exports.authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 10, 
+    max: 1000, 
     message: { success: false, message: "Quá nhiều lần thử. Vui lòng quay lại sau 15 phút." },
     standardHeaders: true,
     legacyHeaders: false,

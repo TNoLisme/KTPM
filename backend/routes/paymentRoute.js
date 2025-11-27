@@ -1,7 +1,7 @@
 const express = require('express');
 const { processPayment, paytmResponse, getPaymentStatus, sendStripeApiKey } = require('../controllers/paymentController');
 const { isAuthenticatedUser } = require('../middlewares/auth');
-
+const {paymentLimiter} = require("../middlewares/limiter");
 const router = express.Router();
 
 // Tạo yêu cầu thanh toán (lấy QR)
