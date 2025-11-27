@@ -3,32 +3,55 @@ const asyncErrorHandler = require('../middlewares/asyncErrorHandler');
 const SearchFeatures = require('../utils/searchFeatures');
 const ErrorHandler = require('../utils/errorHandler');
 const cloudinary = require('cloudinary');
+const { client, getOrSetCacheWithLock } = require('../utils/redisClient')
 
 // Get All Products
 exports.getAllProducts = asyncErrorHandler(async (req, res, next) => {
-
     const resultPerPage = 12;
-    const productsCount = await Product.countDocuments();
-    // console.log(req.query);
+    // ----- Code cũ - chưa cache
+    // const productsCount = await Product.countDocuments();
+    // // console.log(req.query);
 
-    const searchFeature = new SearchFeatures(Product.find(), req.query)
-        .search()
-        .filter();
+    // const searchFeature = new SearchFeatures(Product.find(), req.query)
+    //     .search()
+    //     .filter();
 
-    let products = await searchFeature.query;
-    let filteredProductsCount = products.length;
+    // let products = await searchFeature.query;
+    // let filteredProductsCount = products.length;
 
-    searchFeature.pagination(resultPerPage);
+    // searchFeature.pagination(resultPerPage);
 
-    products = await searchFeature.query.clone();
+    // products = await searchFeature.query.clone();
+
+    const cacheKey = `products:${JSON.stringify(req.query)}`;
+    const cacheTTL = 60;
+
+    const fetchDBLogic = async () => {
+        const productsCount = await Product.countDocuments();
+        const apiFeature = new SearchFeatures(Product.find(), req.query)
+            .search()
+            .filter()
+
+        let products = await apiFeature.query;
+        return { 
+            products, 
+            productsCount 
+        };
+    };
+
+    const data = await getOrSetCacheWithLock(
+        cacheKey, 
+        fetchDBLogic, 
+        cacheTTL
+    );
 
     res.status(200).json({
         success: true,
-        products,
-        productsCount,
-        resultPerPage,
-        filteredProductsCount,
+        products: data.products,
+        productsCount: data.productsCount,
+        resultPerPage: resultPerPage,
     });
+
 });
 
 // Get All Products ---Product Sliders
@@ -43,17 +66,32 @@ exports.getProducts = asyncErrorHandler(async (req, res, next) => {
 
 // Get Product Details
 exports.getProductDetails = asyncErrorHandler(async (req, res, next) => {
+    const productId = req.params.id;
+    const cacheKey = `product:detail:${productId}`;
+    const cacheTTL = 3600;
 
-    const product = await Product.findById(req.params.id);
+    const fetchDetailFromDB = async () => {
+        const product = await Product.findById(productId);
+        
+        if (!product) {
+            throw new ErrorHandler("Product not found", 404);
+        }
+        return product;
+    };
 
-    if (!product) {
-        return next(new ErrorHandler("Product Not Found", 404));
+    // GỌI HÀM CACHING CÓ KHÓA PHÂN TÁN
+    try {
+        const product = await getOrSetCacheWithLock(
+            cacheKey, 
+            fetchDetailFromDB, 
+            cacheTTL
+        );
+
+        res.status(200).json({ success: true, product });
+
+    } catch (error) {
+        return next(error);
     }
-
-    res.status(200).json({
-        success: true,
-        product,
-    });
 });
 
 // Get All Products ---ADMIN
@@ -111,6 +149,12 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
     req.body.specifications = specs;
 
     const product = await Product.create(req.body);
+
+    // Xoá redis cũ khi update
+    const listKeys = await client.keys('product:all:list:*');
+    if (listKeys.length > 0) {
+        await client.del(listKeys);
+    }
 
     res.status(201).json({
         success: true,
@@ -182,6 +226,14 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
         useFindAndModify: false,
     });
 
+    const detailKey = `product:detail:${req.params.id}`;
+    await client.del(detailKey);
+
+    const listKeys = await client.keys('products:*');
+    if (listKeys.length > 0) {
+        await client.del(listKeys);
+    }
+
     res.status(201).json({
         success: true,
         product
@@ -202,6 +254,14 @@ exports.deleteProduct = asyncErrorHandler(async (req, res, next) => {
     }
 
     await product.remove();
+
+    const detailKey = `product:detail:${productId}`;
+    await client.del(detailKey); 
+    
+    const listKeys = await client.keys('products:*');
+    if (listKeys.length > 0) {
+        await client.del(listKeys);
+    }
 
     res.status(201).json({
         success: true
@@ -248,6 +308,8 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
     product.ratings = avg / product.reviews.length;
 
     await product.save({ validateBeforeSave: false });
+    const detailKey = `product:detail:${productId}`;
+    await client.del(detailKey);
 
     res.status(200).json({
         success: true
@@ -305,6 +367,8 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
         runValidators: true,
         useFindAndModify: false,
     });
+    const detailKey = `product:detail:${productId}`;
+    await client.del(detailKey);
 
     res.status(200).json({
         success: true,
