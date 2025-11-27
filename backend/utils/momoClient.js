@@ -8,6 +8,24 @@ const signRawData = (rawData, secretKey) => {
 
 // Hàm gửi yêu cầu tạo thanh toán sang MoMo
 const createMoMoPayment = async (orderId, amount, orderInfo) => {
+    if (process.env.LOAD_TEST_MODE === 'true') {
+        // Giả lập độ trễ mạng (VD: 100ms - 500ms) để test khả năng chịu tải của Worker
+        // Nếu không có delay này, worker sẽ chạy quá nhanh, không test được Concurrency
+        // const fakeDelay = Math.floor(Math.random() * 400) + 100;
+        const fakeDelay = 250
+        await new Promise(resolve => setTimeout(resolve, fakeDelay));
+
+        console.log(`[MOCK] Payment processed for ${orderId} in ${fakeDelay}ms`);
+        return {
+            resultCode: 0,
+            message: "Success (Mocked)",
+            payUrl: "https://test-payment.momo.vn/mock-pay-url",
+            qrCodeUrl: "https://test-payment.momo.vn/mock-qr-code",
+            deeplink: "momo://mock-deeplink",
+            orderId: orderId,
+            requestId: orderId
+        };
+    }
     try {
         const partnerCode = process.env.MOMO_PARTNER_CODE;
         const accessKey = process.env.MOMO_ACCESS_KEY;

@@ -28,7 +28,7 @@ exports.newOrder = asyncErrorHandler(async (req, res, next) => {
         paidAt: Date.now(),
         user: req.user._id,
     });
-
+    await new Promise(resolve => setTimeout(resolve, 500));
     await sendEmail({
         email: req.user.email,
         templateId: process.env.SENDGRID_ORDER_TEMPLATEID,
