@@ -20,11 +20,13 @@ const user = require('./routes/userRoute');
 const product = require('./routes/productRoute');
 const order = require('./routes/orderRoute');
 const payment = require('./routes/paymentRoute');
+const uploadRouter = require("./routes/uploadRouter");
 
 app.use('/api/v1', user);
 app.use('/api/v1', product);
 app.use('/api/v1', order);
 app.use('/api/v1', payment);
+app.use("/api/v1/upload", uploadRouter);
 
 // error middleware
 app.use(errorMiddleware);

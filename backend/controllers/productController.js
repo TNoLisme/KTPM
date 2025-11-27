@@ -9,7 +9,6 @@ exports.getAllProducts = asyncErrorHandler(async (req, res, next) => {
 
     const resultPerPage = 12;
     const productsCount = await Product.countDocuments();
-    // console.log(req.query);
 
     const searchFeature = new SearchFeatures(Product.find(), req.query)
         .search()
@@ -66,59 +65,53 @@ exports.getAdminProducts = asyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// Create Product ---ADMIN
+// Create Product ---ADMIN (đã dùng valet key)
 exports.createProduct = asyncErrorHandler(async (req, res, next) => {
+    // FE gửi images: [{public_id, url}, ...]
+    const imagesFromClient = Array.isArray(req.body.images) ? req.body.images : [];
 
-    let images = [];
-    if (typeof req.body.images === "string") {
-        images.push(req.body.images);
-    } else {
-        images = req.body.images;
-    }
+    const imagesLink = imagesFromClient.map((img) => ({
+        public_id: img.public_id,
+        url: img.url,
+    }));
 
-    const imagesLink = [];
+    // FE gửi brandLogo: {public_id, url}
+    const brandLogoFromClient = req.body.brandLogo;
 
-    for (let i = 0; i < images.length; i++) {
-        const result = await cloudinary.v2.uploader.upload(images[i], {
-            folder: "products",
-        });
-
-        imagesLink.push({
-            public_id: result.public_id,
-            url: result.secure_url,
-        });
-    }
-
-    const result = await cloudinary.v2.uploader.upload(req.body.logo, {
-        folder: "brands",
-    });
-    const brandLogo = {
-        public_id: result.public_id,
-        url: result.secure_url,
-    };
+    const brandLogo = brandLogoFromClient
+        ? {
+            public_id: brandLogoFromClient.public_id,
+            url: brandLogoFromClient.url,
+        }
+        : undefined;
 
     req.body.brand = {
         name: req.body.brandname,
-        logo: brandLogo
-    }
+        logo: brandLogo,
+    };
     req.body.images = imagesLink;
     req.body.user = req.user.id;
 
+    // specs: FE mới gửi dạng object; giữ fallback cho dạng cũ (string JSON)
     let specs = [];
-    req.body.specifications.forEach((s) => {
-        specs.push(JSON.parse(s))
-    });
+    if (Array.isArray(req.body.specifications)) {
+        specs = req.body.specifications;
+    } else if (req.body.specifications) {
+        req.body.specifications.forEach((s) => {
+            specs.push(JSON.parse(s));
+        });
+    }
     req.body.specifications = specs;
 
     const product = await Product.create(req.body);
 
     res.status(201).json({
         success: true,
-        product
+        product,
     });
 });
 
-// Update Product ---ADMIN
+// Update Product ---ADMIN (đã sửa block specifications)
 exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
 
     let product = await Product.findById(req.params.id);
@@ -127,53 +120,49 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
         return next(new ErrorHandler("Product Not Found", 404));
     }
 
-    if (req.body.images !== undefined) {
-        let images = [];
-        if (typeof req.body.images === "string") {
-            images.push(req.body.images);
-        } else {
-            images = req.body.images;
-        }
+    // Xử lý images mới nếu có: FE gửi [{public_id, url}]
+    if (req.body.images && req.body.images.length > 0) {
+        // Xoá ảnh cũ trên Cloudinary
         for (let i = 0; i < product.images.length; i++) {
             await cloudinary.v2.uploader.destroy(product.images[i].public_id);
         }
 
-        const imagesLink = [];
+        const imagesFromClient = Array.isArray(req.body.images) ? req.body.images : [];
 
-        for (let i = 0; i < images.length; i++) {
-            const result = await cloudinary.v2.uploader.upload(images[i], {
-                folder: "products",
-            });
-
-            imagesLink.push({
-                public_id: result.public_id,
-                url: result.secure_url,
-            });
-        }
-        req.body.images = imagesLink;
+        req.body.images = imagesFromClient.map((img) => ({
+            public_id: img.public_id,
+            url: img.url,
+        }));
     }
 
-    if (req.body.logo.length > 0) {
-        await cloudinary.v2.uploader.destroy(product.brand.logo.public_id);
-        const result = await cloudinary.v2.uploader.upload(req.body.logo, {
-            folder: "brands",
-        });
-        const brandLogo = {
-            public_id: result.public_id,
-            url: result.secure_url,
-        };
+    // Logo mới, FE gửi brandLogo: {public_id, url}
+    if (req.body.brandLogo && req.body.brandLogo.public_id) {
+        if (product.brand && product.brand.logo && product.brand.logo.public_id) {
+            await cloudinary.v2.uploader.destroy(product.brand.logo.public_id);
+        }
+
+        const brandLogoFromClient = req.body.brandLogo;
 
         req.body.brand = {
             name: req.body.brandname,
-            logo: brandLogo
-        }
+            logo: {
+                public_id: brandLogoFromClient.public_id,
+                url: brandLogoFromClient.url,
+            },
+        };
     }
 
+    // Specifications: chấp nhận cả dạng array object (mới) lẫn string JSON (cũ)
     let specs = [];
-    req.body.specifications.forEach((s) => {
-        specs.push(JSON.parse(s))
-    });
+    if (Array.isArray(req.body.specifications)) {
+        specs = req.body.specifications;
+    } else if (req.body.specifications) {
+        req.body.specifications.forEach((s) => {
+            specs.push(JSON.parse(s));
+        });
+    }
     req.body.specifications = specs;
+
     req.body.user = req.user.id;
 
     product = await Product.findByIdAndUpdate(req.params.id, req.body, {
@@ -184,7 +173,7 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
 
     res.status(201).json({
         success: true,
-        product
+        product,
     });
 });
 
@@ -204,7 +193,7 @@ exports.deleteProduct = asyncErrorHandler(async (req, res, next) => {
     await product.remove();
 
     res.status(201).json({
-        success: true
+        success: true,
     });
 });
 
@@ -218,7 +207,7 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
         name: req.user.name,
         rating: Number(rating),
         comment,
-    }
+    };
 
     const product = await Product.findById(productId);
 
@@ -226,13 +215,16 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
         return next(new ErrorHandler("Product Not Found", 404));
     }
 
-    const isReviewed = product.reviews.find(review => review.user.toString() === req.user._id.toString());
+    const isReviewed = product.reviews.find(
+        (review) => review.user.toString() === req.user._id.toString()
+    );
 
     if (isReviewed) {
-
-        product.reviews.forEach((rev) => { 
-            if (rev.user.toString() === req.user._id.toString())
-                (rev.rating = rating, rev.comment = comment);
+        product.reviews.forEach((rev) => {
+            if (rev.user.toString() === req.user._id.toString()) {
+                rev.rating = rating;
+                rev.comment = comment;
+            }
         });
     } else {
         product.reviews.push(review);
@@ -250,7 +242,7 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
     await product.save({ validateBeforeSave: false });
 
     res.status(200).json({
-        success: true
+        success: true,
     });
 });
 
@@ -265,11 +257,11 @@ exports.getProductReviews = asyncErrorHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        reviews: product.reviews
+        reviews: product.reviews,
     });
 });
 
-// Delete Reveiws
+// Delete Reviews
 exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
 
     const product = await Product.findById(req.query.productId);
@@ -278,7 +270,9 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
         return next(new ErrorHandler("Product Not Found", 404));
     }
 
-    const reviews = product.reviews.filter((rev) => rev._id.toString() !== req.query.id.toString());
+    const reviews = product.reviews.filter(
+        (rev) => rev._id.toString() !== req.query.id.toString()
+    );
 
     let avg = 0;
 
@@ -296,15 +290,19 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
 
     const numOfReviews = reviews.length;
 
-    await Product.findByIdAndUpdate(req.query.productId, {
-        reviews,
-        ratings: Number(ratings),
-        numOfReviews,
-    }, {
-        new: true,
-        runValidators: true,
-        useFindAndModify: false,
-    });
+    await Product.findByIdAndUpdate(
+        req.query.productId,
+        {
+            reviews,
+            ratings: Number(ratings),
+            numOfReviews,
+        },
+        {
+            new: true,
+            runValidators: true,
+            useFindAndModify: false,
+        }
+    );
 
     res.status(200).json({
         success: true,
