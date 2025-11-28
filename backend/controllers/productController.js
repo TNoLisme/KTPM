@@ -1,3 +1,4 @@
+// backend/controllers/productController.js (OLD VERSION + LOG)
 const Product = require('../models/productModel');
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler');
 const SearchFeatures = require('../utils/searchFeatures');
@@ -66,22 +67,48 @@ exports.getAdminProducts = asyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// Create Product ---ADMIN
+/**
+ *  OLD VERSION: BE tự upload base64 lên Cloudinary
+ *  ĐÃ THÊM LOG để đo hiệu năng
+ */
 exports.createProduct = asyncErrorHandler(async (req, res, next) => {
 
+    // ========= LOG 1: thông tin request từ FE =========
+    const startAll = Date.now();
+    const bodySizeBytes = Number(req.headers['content-length'] || 0);
+
+    console.log(
+      `[OLD_BE] /admin/product/new body=${(bodySizeBytes / 1024 / 1024).toFixed(2)} MB`
+    );
+
+    // images có thể là string hoặc array base64
     let images = [];
     if (typeof req.body.images === "string") {
         images.push(req.body.images);
     } else {
-        images = req.body.images;
+        images = req.body.images || [];
     }
 
-    const imagesLink = [];
+    console.log(`[OLD_BE] số ảnh nhận từ FE = ${images.length}`);
 
+    const imagesLink = [];
+    let totalUploadTime = 0;
+
+    // ========= LOG 2: đo thời gian upload từng ảnh =========
     for (let i = 0; i < images.length; i++) {
+        const t0 = Date.now();
+
         const result = await cloudinary.v2.uploader.upload(images[i], {
             folder: "products",
         });
+
+        const dt = (Date.now() - t0) / 1000;
+        totalUploadTime += dt;
+
+        console.log(
+          `[OLD_BE] upload image[${i}] public_id=${result.public_id} ` +
+          `took ${dt.toFixed(2)} s`
+        );
 
         imagesLink.push({
             public_id: result.public_id,
@@ -89,9 +116,17 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
         });
     }
 
+    // upload logo brand (base64)
+    const tLogo0 = Date.now();
     const result = await cloudinary.v2.uploader.upload(req.body.logo, {
         folder: "brands",
     });
+    const logoTime = (Date.now() - tLogo0) / 1000;
+
+    console.log(
+      `[OLD_BE] upload brand logo public_id=${result.public_id} took ${logoTime.toFixed(2)} s`
+    );
+
     const brandLogo = {
         public_id: result.public_id,
         url: result.secure_url,
@@ -110,7 +145,18 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
     });
     req.body.specifications = specs;
 
+    const tDB0 = Date.now();
     const product = await Product.create(req.body);
+    const dbTime = (Date.now() - tDB0) / 1000;
+
+    const totalTime = (Date.now() - startAll) / 1000;
+
+    console.log(
+      `[OLD_BE] createProduct: totalUploadImages=${totalUploadTime.toFixed(2)} s, ` +
+      `uploadLogo=${logoTime.toFixed(2)} s, dbInsert=${dbTime.toFixed(2)} s, ` +
+      `TOTAL=${totalTime.toFixed(2)} s`
+    );
+    // ========= KẾT THÚC LOG =========
 
     res.status(201).json({
         success: true,
@@ -269,7 +315,7 @@ exports.getProductReviews = asyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// Delete Reveiws
+// Delete Reviews
 exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
 
     const product = await Product.findById(req.query.productId);
