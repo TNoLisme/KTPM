@@ -66,23 +66,48 @@ exports.getAdminProducts = asyncErrorHandler(async (req, res, next) => {
 });
 
 // Create Product ---ADMIN (đã dùng valet key)
+// Create Product ---ADMIN (VALET KEY VERSION + LOG)
 exports.createProduct = asyncErrorHandler(async (req, res, next) => {
-    // FE gửi images: [{public_id, url}, ...]
-    const imagesFromClient = Array.isArray(req.body.images) ? req.body.images : [];
+    // Bắt đầu đo thời gian toàn request
+    const startAll = Date.now();
 
+    // Lấy size body từ header (để so với oldVersion)
+    const bodySizeBytes = Number(req.headers["content-length"] || 0);
+    const bodySizeKB = bodySizeBytes / 1024;
+
+    // FE gửi images: [{public_id, url}, ...]
+    const imagesFromClient = Array.isArray(req.body.images)
+        ? req.body.images
+        : [];
+
+    // FE gửi brandLogo: {public_id, url}
+    const brandLogoFromClient = req.body.brandLogo;
+
+    console.log("\n==================== [VALET_BE] /admin/product/new ====================");
+    console.log(
+        `[VALET_BE] bodySize = ${bodySizeKB.toFixed(1)} KB, images = ${
+            imagesFromClient.length
+        }, specs = ${
+            Array.isArray(req.body.specifications)
+                ? req.body.specifications.length
+                : 0
+        }`
+    );
+    console.log(
+        `[VALET_BE] basic info: name="${req.body.name}", brand="${req.body.brandname}"`
+    );
+
+    // Chuẩn hoá images (nhưng KHÔNG upload Cloudinary ở backend nữa)
     const imagesLink = imagesFromClient.map((img) => ({
         public_id: img.public_id,
         url: img.url,
     }));
 
-    // FE gửi brandLogo: {public_id, url}
-    const brandLogoFromClient = req.body.brandLogo;
-
     const brandLogo = brandLogoFromClient
         ? {
-            public_id: brandLogoFromClient.public_id,
-            url: brandLogoFromClient.url,
-        }
+              public_id: brandLogoFromClient.public_id,
+              url: brandLogoFromClient.url,
+          }
         : undefined;
 
     req.body.brand = {
@@ -92,24 +117,41 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
     req.body.images = imagesLink;
     req.body.user = req.user.id;
 
-    // specs: FE mới gửi dạng object; giữ fallback cho dạng cũ (string JSON)
+    // specs: FE gửi dạng object luôn
     let specs = [];
     if (Array.isArray(req.body.specifications)) {
         specs = req.body.specifications;
     } else if (req.body.specifications) {
+        // fallback nếu BE vẫn nhận dạng string
         req.body.specifications.forEach((s) => {
             specs.push(JSON.parse(s));
         });
     }
     req.body.specifications = specs;
 
+    // Đo thời gian insert DB
+    const dbStart = Date.now();
     const product = await Product.create(req.body);
+    const dbTimeSec = (Date.now() - dbStart) / 1000;
+
+    const totalTimeSec = (Date.now() - startAll) / 1000;
+
+    console.log(
+        `[VALET_BE] MongoDB insert = ${dbTimeSec.toFixed(
+            3
+        )} s, TOTAL request = ${totalTimeSec.toFixed(3)} s`
+    );
+    console.log(
+        `[VALET_BE] created product _id = ${product._id.toString()}`
+    );
+    console.log("================================================================\n");
 
     res.status(201).json({
         success: true,
         product,
     });
 });
+
 
 // Update Product ---ADMIN (đã sửa block specifications)
 exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
