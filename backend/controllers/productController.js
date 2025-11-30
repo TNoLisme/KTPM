@@ -395,7 +395,6 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
 
     const numOfReviews = reviews.length;
 
-<<<<<<< HEAD
     await Product.findByIdAndUpdate(req.query.productId, {
         reviews,
         ratings: Number(ratings),
@@ -407,21 +406,6 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
     });
     const detailKey = `product:detail:${productId}`;
     await client.del(detailKey);
-=======
-    await Product.findByIdAndUpdate(
-        req.query.productId,
-        {
-            reviews,
-            ratings: Number(ratings),
-            numOfReviews,
-        },
-        {
-            new: true,
-            runValidators: true,
-            useFindAndModify: false,
-        }
-    );
->>>>>>> origin/valet_key
 
     res.status(200).json({
         success: true,
