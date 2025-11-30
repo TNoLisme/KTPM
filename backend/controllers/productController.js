@@ -104,51 +104,86 @@ exports.getAdminProducts = asyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// Create Product ---ADMIN
+// Create Product ---ADMIN (đã dùng valet key)
+// Create Product ---ADMIN (VALET KEY VERSION + LOG)
 exports.createProduct = asyncErrorHandler(async (req, res, next) => {
+    // Bắt đầu đo thời gian toàn request
+    const startAll = Date.now();
 
-    let images = [];
-    if (typeof req.body.images === "string") {
-        images.push(req.body.images);
-    } else {
-        images = req.body.images;
-    }
+    // Lấy size body từ header (để so với oldVersion)
+    const bodySizeBytes = Number(req.headers["content-length"] || 0);
+    const bodySizeKB = bodySizeBytes / 1024;
 
-    const imagesLink = [];
+    // FE gửi images: [{public_id, url}, ...]
+    const imagesFromClient = Array.isArray(req.body.images)
+        ? req.body.images
+        : [];
 
-    for (let i = 0; i < images.length; i++) {
-        const result = await cloudinary.v2.uploader.upload(images[i], {
-            folder: "products",
-        });
+    // FE gửi brandLogo: {public_id, url}
+    const brandLogoFromClient = req.body.brandLogo;
 
-        imagesLink.push({
-            public_id: result.public_id,
-            url: result.secure_url,
-        });
-    }
+    console.log("\n==================== [VALET_BE] /admin/product/new ====================");
+    console.log(
+        `[VALET_BE] bodySize = ${bodySizeKB.toFixed(1)} KB, images = ${
+            imagesFromClient.length
+        }, specs = ${
+            Array.isArray(req.body.specifications)
+                ? req.body.specifications.length
+                : 0
+        }`
+    );
+    console.log(
+        `[VALET_BE] basic info: name="${req.body.name}", brand="${req.body.brandname}"`
+    );
 
-    const result = await cloudinary.v2.uploader.upload(req.body.logo, {
-        folder: "brands",
-    });
-    const brandLogo = {
-        public_id: result.public_id,
-        url: result.secure_url,
-    };
+    // Chuẩn hoá images (nhưng KHÔNG upload Cloudinary ở backend nữa)
+    const imagesLink = imagesFromClient.map((img) => ({
+        public_id: img.public_id,
+        url: img.url,
+    }));
+
+    const brandLogo = brandLogoFromClient
+        ? {
+              public_id: brandLogoFromClient.public_id,
+              url: brandLogoFromClient.url,
+          }
+        : undefined;
 
     req.body.brand = {
         name: req.body.brandname,
-        logo: brandLogo
-    }
+        logo: brandLogo,
+    };
     req.body.images = imagesLink;
     req.body.user = req.user.id;
 
+    // specs: FE gửi dạng object luôn
     let specs = [];
-    req.body.specifications.forEach((s) => {
-        specs.push(JSON.parse(s))
-    });
+    if (Array.isArray(req.body.specifications)) {
+        specs = req.body.specifications;
+    } else if (req.body.specifications) {
+        // fallback nếu BE vẫn nhận dạng string
+        req.body.specifications.forEach((s) => {
+            specs.push(JSON.parse(s));
+        });
+    }
     req.body.specifications = specs;
 
+    // Đo thời gian insert DB
+    const dbStart = Date.now();
     const product = await Product.create(req.body);
+    const dbTimeSec = (Date.now() - dbStart) / 1000;
+
+    const totalTimeSec = (Date.now() - startAll) / 1000;
+
+    console.log(
+        `[VALET_BE] MongoDB insert = ${dbTimeSec.toFixed(
+            3
+        )} s, TOTAL request = ${totalTimeSec.toFixed(3)} s`
+    );
+    console.log(
+        `[VALET_BE] created product _id = ${product._id.toString()}`
+    );
+    console.log("================================================================\n");
 
     // Xoá redis cũ khi update
     const listKeys = await client.keys('product:all:list:*');
@@ -158,11 +193,12 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
 
     res.status(201).json({
         success: true,
-        product
+        product,
     });
 });
 
-// Update Product ---ADMIN
+
+// Update Product ---ADMIN (đã sửa block specifications)
 exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
 
     let product = await Product.findById(req.params.id);
@@ -171,53 +207,49 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
         return next(new ErrorHandler("Product Not Found", 404));
     }
 
-    if (req.body.images !== undefined) {
-        let images = [];
-        if (typeof req.body.images === "string") {
-            images.push(req.body.images);
-        } else {
-            images = req.body.images;
-        }
+    // Xử lý images mới nếu có: FE gửi [{public_id, url}]
+    if (req.body.images && req.body.images.length > 0) {
+        // Xoá ảnh cũ trên Cloudinary
         for (let i = 0; i < product.images.length; i++) {
             await cloudinary.v2.uploader.destroy(product.images[i].public_id);
         }
 
-        const imagesLink = [];
+        const imagesFromClient = Array.isArray(req.body.images) ? req.body.images : [];
 
-        for (let i = 0; i < images.length; i++) {
-            const result = await cloudinary.v2.uploader.upload(images[i], {
-                folder: "products",
-            });
-
-            imagesLink.push({
-                public_id: result.public_id,
-                url: result.secure_url,
-            });
-        }
-        req.body.images = imagesLink;
+        req.body.images = imagesFromClient.map((img) => ({
+            public_id: img.public_id,
+            url: img.url,
+        }));
     }
 
-    if (req.body.logo.length > 0) {
-        await cloudinary.v2.uploader.destroy(product.brand.logo.public_id);
-        const result = await cloudinary.v2.uploader.upload(req.body.logo, {
-            folder: "brands",
-        });
-        const brandLogo = {
-            public_id: result.public_id,
-            url: result.secure_url,
-        };
+    // Logo mới, FE gửi brandLogo: {public_id, url}
+    if (req.body.brandLogo && req.body.brandLogo.public_id) {
+        if (product.brand && product.brand.logo && product.brand.logo.public_id) {
+            await cloudinary.v2.uploader.destroy(product.brand.logo.public_id);
+        }
+
+        const brandLogoFromClient = req.body.brandLogo;
 
         req.body.brand = {
             name: req.body.brandname,
-            logo: brandLogo
-        }
+            logo: {
+                public_id: brandLogoFromClient.public_id,
+                url: brandLogoFromClient.url,
+            },
+        };
     }
 
+    // Specifications: chấp nhận cả dạng array object (mới) lẫn string JSON (cũ)
     let specs = [];
-    req.body.specifications.forEach((s) => {
-        specs.push(JSON.parse(s))
-    });
+    if (Array.isArray(req.body.specifications)) {
+        specs = req.body.specifications;
+    } else if (req.body.specifications) {
+        req.body.specifications.forEach((s) => {
+            specs.push(JSON.parse(s));
+        });
+    }
     req.body.specifications = specs;
+
     req.body.user = req.user.id;
 
     product = await Product.findByIdAndUpdate(req.params.id, req.body, {
@@ -236,7 +268,7 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
 
     res.status(201).json({
         success: true,
-        product
+        product,
     });
 });
 
@@ -264,7 +296,7 @@ exports.deleteProduct = asyncErrorHandler(async (req, res, next) => {
     }
 
     res.status(201).json({
-        success: true
+        success: true,
     });
 });
 
@@ -278,7 +310,7 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
         name: req.user.name,
         rating: Number(rating),
         comment,
-    }
+    };
 
     const product = await Product.findById(productId);
 
@@ -286,13 +318,16 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
         return next(new ErrorHandler("Product Not Found", 404));
     }
 
-    const isReviewed = product.reviews.find(review => review.user.toString() === req.user._id.toString());
+    const isReviewed = product.reviews.find(
+        (review) => review.user.toString() === req.user._id.toString()
+    );
 
     if (isReviewed) {
-
-        product.reviews.forEach((rev) => { 
-            if (rev.user.toString() === req.user._id.toString())
-                (rev.rating = rating, rev.comment = comment);
+        product.reviews.forEach((rev) => {
+            if (rev.user.toString() === req.user._id.toString()) {
+                rev.rating = rating;
+                rev.comment = comment;
+            }
         });
     } else {
         product.reviews.push(review);
@@ -312,7 +347,7 @@ exports.createProductReview = asyncErrorHandler(async (req, res, next) => {
     await client.del(detailKey);
 
     res.status(200).json({
-        success: true
+        success: true,
     });
 });
 
@@ -327,11 +362,11 @@ exports.getProductReviews = asyncErrorHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        reviews: product.reviews
+        reviews: product.reviews,
     });
 });
 
-// Delete Reveiws
+// Delete Reviews
 exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
 
     const product = await Product.findById(req.query.productId);
@@ -340,7 +375,9 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
         return next(new ErrorHandler("Product Not Found", 404));
     }
 
-    const reviews = product.reviews.filter((rev) => rev._id.toString() !== req.query.id.toString());
+    const reviews = product.reviews.filter(
+        (rev) => rev._id.toString() !== req.query.id.toString()
+    );
 
     let avg = 0;
 
@@ -358,6 +395,7 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
 
     const numOfReviews = reviews.length;
 
+<<<<<<< HEAD
     await Product.findByIdAndUpdate(req.query.productId, {
         reviews,
         ratings: Number(ratings),
@@ -369,6 +407,21 @@ exports.deleteReview = asyncErrorHandler(async (req, res, next) => {
     });
     const detailKey = `product:detail:${productId}`;
     await client.del(detailKey);
+=======
+    await Product.findByIdAndUpdate(
+        req.query.productId,
+        {
+            reviews,
+            ratings: Number(ratings),
+            numOfReviews,
+        },
+        {
+            new: true,
+            runValidators: true,
+            useFindAndModify: false,
+        }
+    );
+>>>>>>> origin/valet_key
 
     res.status(200).json({
         success: true,
