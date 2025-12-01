@@ -6,6 +6,8 @@ const errorMiddleware = require('./middlewares/error');
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 // config
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config({ path: 'backend/config/config.env' });

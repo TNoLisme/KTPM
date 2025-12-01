@@ -3,8 +3,10 @@ const Order = require('../models/orderModel');
 const Product = require('../models/productModel');
 const ErrorHandler = require('../utils/errorHandler');
 const sendEmail = require('../utils/sendEmail');
+const orderQueue = require('../utils/orderQueue'); // Import Queue đã tạo
 
-// Create New Order
+// Create New Order (Queue-Based Load Leveling)
+// Logic: Nhận request -> Validate sơ bộ -> Đẩy vào Queue -> Trả về 202 Accepted ngay lập tức
 exports.newOrder = asyncErrorHandler(async (req, res, next) => {
 
     const {
@@ -14,36 +16,34 @@ exports.newOrder = asyncErrorHandler(async (req, res, next) => {
         totalPrice,
     } = req.body;
 
-    const orderExist = await Order.findOne({ paymentInfo });
-
-    if (orderExist) {
-        return next(new ErrorHandler("Order Already Placed", 400));
+    // Validate input cơ bản trước khi đẩy vào Queue
+    // Giúp loại bỏ các request rác ngay từ đầu mà không tốn resource của Worker
+    if (!orderItems || orderItems.length === 0) {
+        return next(new ErrorHandler("No order items", 400));
     }
 
-    const order = await Order.create({
+    // Đẩy job vào hàng đợi 'process-order'
+    // Dữ liệu trong job bao gồm tất cả thông tin cần thiết để Worker tạo đơn hàng sau này
+    await orderQueue.add('process-order', {
+        user: req.user._id, // User ID từ auth middleware
+        userEmail: req.user.email,
+        userName: req.user.name,
         shippingInfo,
         orderItems,
         paymentInfo,
         totalPrice,
-        paidAt: Date.now(),
-        user: req.user._id,
+        createdAt: Date.now()
+    }, {
+        removeOnComplete: true, // Tự động xóa job khỏi Redis khi hoàn thành để tiết kiệm bộ nhớ
+        attempts: 3, // Tự động thử lại 3 lần nếu Worker gặp lỗi (ví dụ: DB timeout)
+        backoff: { type: 'exponential', delay: 1000 } // Thời gian chờ giữa các lần thử lại tăng dần: 1s, 2s, 4s...
     });
 
-    await sendEmail({
-        email: req.user.email,
-        templateId: process.env.SENDGRID_ORDER_TEMPLATEID,
-        data: {
-            name: req.user.name,
-            shippingInfo,
-            orderItems,
-            totalPrice,
-            oid: order._id,
-        }
-    });
-
-    res.status(201).json({
+    // Trả về mã 202 (Accepted) thay vì 201 (Created)
+    // Ý nghĩa: "Tôi đã nhận yêu cầu của bạn và sẽ xử lý, nhưng chưa xong ngay đâu"
+    res.status(202).json({
         success: true,
-        order,
+        message: "Order request received and queued for processing.",
     });
 });
 
