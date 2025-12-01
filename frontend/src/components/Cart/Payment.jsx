@@ -67,7 +67,7 @@ const Payment = () => {
 				config
 			);
 			// 1. Kiểm tra nếu Backend trả về "succeeded" ngay (Trường hợp Load Test / Mock)
-			if (data.paymentInfo && data.paymentInfo.status === "succeeded") {
+			if (process.env.LOAD_TEST_MODE === 'true' && data.paymentInfo && data.paymentInfo.status === "succeeded") {
 				// Cập nhật Redux Store
 				order.paymentInfo = {
 					id: data.paymentInfo.id || data.paymentInfo.txnId,
@@ -87,7 +87,7 @@ const Payment = () => {
 
 			// 2. Nếu Backend trả về URL thanh toán (Trường hợp chạy thật)
 			// Lấy link thanh toán từ backend
-			const qrLink = data.deeplink || data.payUrl || data.qrCodeUrl;
+			const qrLink = data.paymentInfo.deeplink || data.paymentInfo.payUrl || data.paymentInfo.qrCodeUrl;
 
 			if (qrLink) {
 				// TẠO ẢNH QR TỪ LINK

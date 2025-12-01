@@ -3,6 +3,8 @@ const { createClient } = require('redis');
 const CircuitBreaker = require('opossum');
 const { LRUCache } = require('lru-cache')
 
+let count_req = 100;
+
 const client = createClient({
     url: 'redis://127.0.0.1:6379',
     socket: {
@@ -52,6 +54,7 @@ redisBreaker.on('open', () => console.warn("WARNING: Redis circuit breaker is op
 redisBreaker.on('close', () => console.log("OK: Redis circuit breaker closed"));
 
 redisBreaker.on('halfOpen', async () => {
+    count_req = 100;
  
     if (!client.isOpen) {
         try {
@@ -98,8 +101,9 @@ const getOrSetCacheWithLock = async (key, fetchFunction, ttlSeconds) => {
                 return JSON.parse(cachedData)
             }
         } catch (error) {
-            if (error.message && error.message.includes('Breaker is open')) {
+            if (error.message && error.message.includes('Breaker is open') && count_req >=0) {
                 console.warn('Circuit breaker open, falling back to DB directly');
+                count_req = count_req - 1;
                 // return await fetchFunction();
                 try {
                     console.log('Fetching from DB due to Redis outage...');

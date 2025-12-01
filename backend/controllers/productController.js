@@ -222,6 +222,7 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
         }));
     }
 
+
     // Logo mới, FE gửi brandLogo: {public_id, url}
     if (req.body.brandLogo && req.body.brandLogo.public_id) {
         if (product.brand && product.brand.logo && product.brand.logo.public_id) {
@@ -248,7 +249,9 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
             specs.push(JSON.parse(s));
         });
     }
+
     req.body.specifications = specs;
+
 
     req.body.user = req.user.id;
 
@@ -258,6 +261,7 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
         useFindAndModify: false,
     });
 
+    console.log("pass code")
     const detailKey = `product:detail:${req.params.id}`;
     await client.del(detailKey);
 
