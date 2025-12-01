@@ -3,8 +3,10 @@ const Product = require('../models/productModel');
 
 class RollbackInventoryFilter extends BaseFilter {
     async execute(data) {
-        console.warn(`[SAGA] Rolling back Inventory...`);
-        for (const item of data.input.orderItems) {
+        const { input, traceId } = data; // Lấy traceId
+        console.warn(`↩️ [${traceId}] [Rollback: Inventory] Restoring stock...`); // Log với ID
+
+        for (const item of input.orderItems) {
             await Product.findByIdAndUpdate(
                 item.product,
                 { $inc: { stock: +item.quantity } } // Cộng lại

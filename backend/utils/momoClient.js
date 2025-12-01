@@ -14,7 +14,7 @@ const createMoMoPayment = async (orderId, amount, orderInfo) => {
         // Giả lập độ trễ mạng (VD: 100ms - 500ms) để test khả năng chịu tải của Worker
         // Nếu không có delay này, worker sẽ chạy quá nhanh, không test được Concurrency
         // const fakeDelay = Math.floor(Math.random() * 400) + 100;
-        const fakeDelay = 250
+        const fakeDelay = 200
         await new Promise(resolve => setTimeout(resolve, fakeDelay));
 
         console.log(`[MOCK] Payment processed for ${orderId} in ${fakeDelay}ms`);

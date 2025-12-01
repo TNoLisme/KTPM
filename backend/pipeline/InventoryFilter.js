@@ -3,8 +3,8 @@ const Product = require('../models/productModel');
 
 class InventoryFilter extends BaseFilter {
     async execute(data) {
-        const { input } = data;
-        console.log(`[Filter: Inventory] Reserving stock...`);
+        const { input, traceId } = data; // Lấy traceId
+        console.log(`[${traceId}] [Inventory] Reserving stock...`); // Log với ID
 
         for (const item of input.orderItems) {
             const product = await Product.findOneAndUpdate(
