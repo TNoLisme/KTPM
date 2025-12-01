@@ -5,7 +5,7 @@ const fileUpload = require('express-fileupload');
 const errorMiddleware = require('./middlewares/error');
 
 const app = express();
-
+app.set('trust proxy', 1);
 // config
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config({ path: 'backend/config/config.env' });
@@ -17,14 +17,14 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(fileUpload());
 
 // Log thời gian xử lý mỗi request (simple profiling)
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on("finish", () => {
-    const ms = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} - ${ms}ms`);
-  });
-  next();
-});
+// app.use((req, res, next) => {
+//   const start = Date.now();
+//   res.on("finish", () => {
+//     const ms = Date.now() - start;
+//     console.log(`${req.method} ${req.originalUrl} - ${ms}ms`);
+//   });
+//   next();
+// });
 
 
 const user = require('./routes/userRoute');

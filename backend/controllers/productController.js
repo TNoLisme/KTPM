@@ -24,7 +24,7 @@ exports.getAllProducts = asyncErrorHandler(async (req, res, next) => {
     // products = await searchFeature.query.clone();
 
     const cacheKey = `products:${JSON.stringify(req.query)}`;
-    const cacheTTL = 60;
+    const cacheTTL = 360;
 
     const fetchDBLogic = async () => {
         const productsCount = await Product.countDocuments();
@@ -122,19 +122,19 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
     // FE gửi brandLogo: {public_id, url}
     const brandLogoFromClient = req.body.brandLogo;
 
-    console.log("\n==================== [VALET_BE] /admin/product/new ====================");
-    console.log(
-        `[VALET_BE] bodySize = ${bodySizeKB.toFixed(1)} KB, images = ${
-            imagesFromClient.length
-        }, specs = ${
-            Array.isArray(req.body.specifications)
-                ? req.body.specifications.length
-                : 0
-        }`
-    );
-    console.log(
-        `[VALET_BE] basic info: name="${req.body.name}", brand="${req.body.brandname}"`
-    );
+    // console.log("\n==================== [VALET_BE] /admin/product/new ====================");
+    // console.log(
+    //     `[VALET_BE] bodySize = ${bodySizeKB.toFixed(1)} KB, images = ${
+    //         imagesFromClient.length
+    //     }, specs = ${
+    //         Array.isArray(req.body.specifications)
+    //             ? req.body.specifications.length
+    //             : 0
+    //     }`
+    // );
+    // console.log(
+    //     `[VALET_BE] basic info: name="${req.body.name}", brand="${req.body.brandname}"`
+    // );
 
     // Chuẩn hoá images (nhưng KHÔNG upload Cloudinary ở backend nữa)
     const imagesLink = imagesFromClient.map((img) => ({
@@ -175,15 +175,15 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
 
     const totalTimeSec = (Date.now() - startAll) / 1000;
 
-    console.log(
-        `[VALET_BE] MongoDB insert = ${dbTimeSec.toFixed(
-            3
-        )} s, TOTAL request = ${totalTimeSec.toFixed(3)} s`
-    );
-    console.log(
-        `[VALET_BE] created product _id = ${product._id.toString()}`
-    );
-    console.log("================================================================\n");
+    // console.log(
+    //     `[VALET_BE] MongoDB insert = ${dbTimeSec.toFixed(
+    //         3
+    //     )} s, TOTAL request = ${totalTimeSec.toFixed(3)} s`
+    // );
+    // console.log(
+    //     `[VALET_BE] created product _id = ${product._id.toString()}`
+    // );
+    // console.log("================================================================\n");
 
     // Xoá redis cũ khi update
     const listKeys = await client.keys('product:all:list:*');
@@ -287,7 +287,7 @@ exports.deleteProduct = asyncErrorHandler(async (req, res, next) => {
 
     await product.remove();
 
-    const detailKey = `product:detail:${productId}`;
+    const detailKey = `product:detail:${product}`;
     await client.del(detailKey); 
     
     const listKeys = await client.keys('products:*');
@@ -295,6 +295,7 @@ exports.deleteProduct = asyncErrorHandler(async (req, res, next) => {
         await client.del(listKeys);
     }
 
+    // console.log("Thành công")
     res.status(201).json({
         success: true,
     });

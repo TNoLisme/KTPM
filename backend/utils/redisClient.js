@@ -1,6 +1,7 @@
 // --- Version 1-----
 const { createClient } = require('redis');
 const CircuitBreaker = require('opossum');
+const { LRUCache } = require('lru-cache')
 
 const client = createClient({
     url: 'redis://127.0.0.1:6379',
@@ -13,15 +14,24 @@ const client = createClient({
     }
 });
 
+const localCache = new LRUCache({
+    max: 1000,             
+    ttl: 1000 * 60 * 1, 
+});
+
 client.on('error', (err) => {
     console.log('Redis Client Error', err);
 });
 
 async function connectRedis() {
-    if (!client.isOpen) {
-        await client.connect();
-        console.log('Redis connected successfully!');
-    }
+    try {
+            await client.connect();
+            console.log('Redis connected successfully!');
+        } catch (err) {
+            console.error(`Redis connection failed: ${err.message}`);
+            
+            throw err; 
+        }
 }
 
 // -- Circuit breaker cho tất cả Redis operations --
@@ -31,9 +41,9 @@ const redisOperation = async (operation, ...args) => {
 
 const breakerOptions = {
     errorThresholdPercentage: 10, // Ngưỡng 10% lỗi mạng
-    volumeThreshold: 20, // quan sát 20 request gần nhất
-    timeout: 3000, 
-    resetTimeout: 15000 // Chờ 30s ở open trước khi mở lại
+    volumeThreshold: 40, // quan sát 20 request gần nhất
+    timeout: 10000, 
+    resetTimeout: 60000 // Chờ 30s ở open trước khi mở lại
 }
 
 const redisBreaker = new CircuitBreaker(redisOperation, breakerOptions);
@@ -74,6 +84,11 @@ const getOrSetCacheWithLock = async (key, fetchFunction, ttlSeconds) => {
     const maxRetry = 5;
     let retries = 0;
 
+    const localData = localCache.get(key);
+    if (localData) {
+        return localData; 
+    }
+
     while (retries < maxRetry) {
         let cachedData;
         try {
@@ -85,7 +100,18 @@ const getOrSetCacheWithLock = async (key, fetchFunction, ttlSeconds) => {
         } catch (error) {
             if (error.message && error.message.includes('Breaker is open')) {
                 console.warn('Circuit breaker open, falling back to DB directly');
-                return await fetchFunction();
+                // return await fetchFunction();
+                try {
+                    console.log('Fetching from DB due to Redis outage...');
+                    const freshData = await fetchFunction();
+
+                    localCache.set(key, freshData);
+                    
+                    return freshData;
+                } catch (dbError) {
+                    console.error('Fatal: DB is also down or query failed', dbError);
+                    throw dbError;
+                }
             }
             console.error('Redis Get Error:', error.message);
             // Tiếp tục thử acquire lock
