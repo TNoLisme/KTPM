@@ -1,7 +1,8 @@
 const express = require('express');
 const { newOrder, getSingleOrderDetails, myOrders, getAllOrders, updateOrder, deleteOrder } = require('../controllers/orderController');
 const { isAuthenticatedUser, authorizeRoles } = require('../middlewares/auth');
-const { spamThrottler, spamLimiter, adminLimiter } = require("../middlewares/limiter");
+const adminLimiter = require('../middlewares/limiters/adminLimiter');
+const { spamThrottler, spamLimiter} = require("../middlewares/limiters/spamLimiter");
 const router = express.Router();
 
 router.route('/order/new').post(isAuthenticatedUser, spamThrottler, spamLimiter, newOrder);

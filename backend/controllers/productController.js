@@ -252,30 +252,16 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
             public_id: img.public_id,
             url: img.url,
         }));
-    } else {
-        // Không gửi images lên => giữ nguyên ảnh cũ
-        delete req.body.images;
     }
 
-    // ================== 2) LOGO THƯƠNG HIỆU (brandLogo) ==================
-    // FE (valet key) gửi: brandLogo: { public_id, url }
-    if (req.body.brandLogo) {
-        let brandLogoFromClient = req.body.brandLogo;
 
-        // fallback: brandLogo là string JSON
-        if (typeof brandLogoFromClient === "string") {
-            try {
-                brandLogoFromClient = JSON.parse(brandLogoFromClient);
-            } catch (e) {
-                brandLogoFromClient = null;
-            }
+    // Logo mới, FE gửi brandLogo: {public_id, url}
+    if (req.body.brandLogo && req.body.brandLogo.public_id) {
+        if (product.brand && product.brand.logo && product.brand.logo.public_id) {
+            await cloudinary.v2.uploader.destroy(product.brand.logo.public_id);
         }
 
-        if (brandLogoFromClient && brandLogoFromClient.public_id) {
-            // Xoá logo cũ nếu có
-            if (product.brand && product.brand.logo && product.brand.logo.public_id) {
-                await cloudinary.v2.uploader.destroy(product.brand.logo.public_id);
-            }
+        const brandLogoFromClient = req.body.brandLogo;
 
             req.body.brand = {
                 name: req.body.brandname || product.brand?.name,
@@ -300,36 +286,15 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
     let specs = [];
 
     if (Array.isArray(req.body.specifications)) {
-        if (req.body.specifications.length > 0 && typeof req.body.specifications[0] === "object") {
-            specs = req.body.specifications;
-        } else if (typeof req.body.specifications[0] === "string") {
-            specs = req.body.specifications.map((s) => {
-                try {
-                    return JSON.parse(s);
-                } catch (e) {
-                    return null;
-                }
-            }).filter(Boolean);
-        }
-    } else if (typeof req.body.specifications === "string") {
-        try {
-            const parsed = JSON.parse(req.body.specifications);
-            if (Array.isArray(parsed)) {
-                specs = parsed;
-            } else {
-                specs = [parsed];
-            }
-        } catch (e) {
-            specs = [];
-        }
+        specs = req.body.specifications;
+    } else if (req.body.specifications) {
+        req.body.specifications.forEach((s) => {
+            specs.push(JSON.parse(s));
+        });
     }
 
-    if (specs.length > 0) {
-        req.body.specifications = specs;
-    } else {
-        // Nếu không gửi gì thì không overwrite specs cũ
-        delete req.body.specifications;
-    }
+    req.body.specifications = specs;
+
 
     // ================== 4) USER & UPDATE DB ==================
     req.body.user = req.user.id;
@@ -340,7 +305,6 @@ exports.updateProduct = asyncErrorHandler(async (req, res, next) => {
         useFindAndModify: false,
     });
 
-    // ================== 5) CLEAR REDIS CACHE ==================
     const detailKey = `product:detail:${req.params.id}`;
     await client.del(detailKey);
 
