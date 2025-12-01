@@ -165,7 +165,7 @@ export const createProduct = (product) => async (dispatch) => {
       config
     );
 
-    dispatch({ type: NEW_PRODUCT_SUCCESS, payload: data.product });
+    dispatch({ type: NEW_PRODUCT_SUCCESS, payload: data });
   } catch (error) {
     dispatch({
       type: NEW_PRODUCT_FAIL,

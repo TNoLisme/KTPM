@@ -1,50 +1,60 @@
 const asyncErrorHandler = require('../middlewares/asyncErrorHandler');
+const ErrorHandler = require('../utils/errorHandler');
 const Order = require('../models/orderModel');
 const Product = require('../models/productModel');
-const ErrorHandler = require('../utils/errorHandler');
-const sendEmail = require('../utils/sendEmail');
-
-// Create New Order
+const pipelineManager = require('../pipeline/Pipeline');
+// Create New Order (ASYNC SEDA ENTRY POINT)
 exports.newOrder = asyncErrorHandler(async (req, res, next) => {
 
-    const {
-        shippingInfo,
-        orderItems,
-        paymentInfo,
-        totalPrice,
-    } = req.body;
+    // Chuẩn bị Payload (Job Data)
+    const traceId = `REQ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-    const orderExist = await Order.findOne({ paymentInfo });
-
-    if (orderExist) {
-        return next(new ErrorHandler("Order Already Placed", 400));
+    const jobData = {
+        traceId: traceId,
+        user: {
+            _id: req.user._id, // User lấy từ Middleware Auth
+            name: req.user.name,
+            email: req.user.email
+        },
+        input: {
+            shippingInfo: req.body.shippingInfo,
+            orderItems: req.body.orderItems,
+            paymentInfo: req.body.paymentInfo || {}, // Mock ID từ frontend hoặc rỗng
+            totalPrice: req.body.totalPrice,
+            // Thêm cờ behavior nếu muốn test lỗi từ API (Optional)
+            behavior: req.body.behavior || 'SUCCESS'
+        }
     }
 
-    const order = await Order.create({
-        shippingInfo,
-        orderItems,
-        paymentInfo,
-        totalPrice,
-        paidAt: Date.now(),
-        user: req.user._id,
-    });
+    try {
+        console.log(`[API] Received Order Request ${traceId}. Pushing to Pipeline...`);
 
-    await sendEmail({
-        email: req.user.email,
-        templateId: process.env.SENDGRID_ORDER_TEMPLATEID,
-        data: {
-            name: req.user.name,
-            shippingInfo,
-            orderItems,
-            totalPrice,
-            oid: order._id,
-        }
-    });
+        // ĐẨY VÀO PIPELINE VÀ CHỜ KẾT QUẢ (Mode: Request-Response)
+        // Chúng ta dùng 'await' ở đây để nhận về OrderID thật trả cho Frontend/JMeter
+        // Nếu muốn chạy kiểu "Fire-and-Forget" (trả về ngay lập tức), bỏ 'await' đi.
+        const result = await pipelineManager.addJob(jobData);
 
-    res.status(201).json({
-        success: true,
-        order,
-    });
+        // 4. Trả về kết quả thành công (Sau khi đã qua hết các Filter: Validate -> Kho -> DB -> Payment)
+        res.status(201).json({
+            success: true,
+            message: "Order processed successfully via Pipeline.",
+            traceId: traceId,
+            orderId: result.orderId,        // ID thật từ DB
+            paymentInfo: result.paymentResult, // Kết quả từ MoMo/Mock
+            order: {                        // Trả về cấu trúc khớp với Frontend mong đợi
+                _id: result.orderId,
+                orderStatus: "Paid",        // Vì đã qua bước Payment thành công
+                totalPrice: jobData.input.totalPrice
+            }
+        });
+
+    } catch (error) {
+        // Nếu lỗi xảy ra trong Pipeline (đã retry hết mức và Rollback), lỗi sẽ ném ra đây
+        console.error(`[API] Request ${traceId} Failed: ${error.message}`);
+
+        // Trả về lỗi 500 hoặc 400 tùy loại lỗi để Frontend biết
+        return next(new ErrorHandler(error.message, 500));
+    }
 });
 
 // Get Single Order Details
