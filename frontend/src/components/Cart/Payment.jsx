@@ -51,12 +51,41 @@ const Payment = () => {
 		try {
 			const config = { headers: { "Content-Type": "application/json" } };
 
+			const pipelinePayload = {
+				shippingInfo: shippingInfo,
+				orderItems: cartItems,
+				paymentInfo: {
+					id: "TEMP_ID", // ID tạm, backend sẽ sinh lại hoặc dùng Mock
+					status: "PENDING",
+				},
+				totalPrice: totalPrice,
+			};
+
 			const { data } = await axios.post(
-				"/api/v1/payment/process",
-				paymentData,
+				"/api/v1/order/new", // Đường dẫn mới (Controller có Pipeline)
+				pipelinePayload, // Payload đầy đủ cho Pipeline
 				config
 			);
+			// 1. Kiểm tra nếu Backend trả về "succeeded" ngay (Trường hợp Load Test / Mock)
+			if (data.paymentInfo && data.paymentInfo.status === "succeeded") {
+				// Cập nhật Redux Store
+				order.paymentInfo = {
+					id: data.paymentInfo.id || data.paymentInfo.txnId,
+					status: "succeeded",
+				};
 
+				//
+				dispatch(emptyCart());
+
+				enqueueSnackbar("Thanh toán thành công (Mock Mode)", {
+					variant: "success",
+				});
+				// Chuyển hướng ngay đến trang thành công
+				navigate("/orders/success");
+				return; // Kết thúc hàm, không làm các bước QR code bên dưới
+			}
+
+			// 2. Nếu Backend trả về URL thanh toán (Trường hợp chạy thật)
 			// Lấy link thanh toán từ backend
 			const qrLink = data.deeplink || data.payUrl || data.qrCodeUrl;
 
