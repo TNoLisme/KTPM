@@ -2,7 +2,11 @@ const express = require('express');
 const { registerUser, loginUser, logoutUser, getUserDetails, forgotPassword, resetPassword, updatePassword, updateProfile, getAllUsers, getSingleUser, updateUserRole, deleteUser } = require('../controllers/userController');
 const { isAuthenticatedUser, authorizeRoles } = require('../middlewares/auth');
 
-const { authLimiter, spamThrottler, spamLimiter, adminLimiter } = require("../middlewares/limiter");
+// --- IMPORT TỪ CÁC FILE RIÊNG BIỆT ---
+const authLimiter = require('../middlewares/limiters/authLimiter'); 
+const adminLimiter = require('../middlewares/limiters/adminLimiter');
+const { spamThrottler, spamLimiter } = require('../middlewares/limiters/spamLimiter');
+
 const router = express.Router();
 
 router.route('/register').post(authLimiter, registerUser);
@@ -11,13 +15,13 @@ router.route('/logout').get(logoutUser);
 
 router.route('/me').get(isAuthenticatedUser, getUserDetails);
 
-router.route('/password/forgot').post(authLimiter,forgotPassword);
+router.route('/password/forgot').post(authLimiter, forgotPassword);
 router.route('/password/reset/:token').put(authLimiter, resetPassword);
 
 router.route('/password/update').put(isAuthenticatedUser, spamThrottler, updatePassword);
-
 router.route('/me/update').put(isAuthenticatedUser, spamThrottler, spamLimiter, updateProfile);
 
+// Admin Routes
 router.route("/admin/users").get(isAuthenticatedUser, authorizeRoles("admin"), getAllUsers);
 
 router.route("/admin/user/:id")
